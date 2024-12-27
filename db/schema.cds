@@ -22,8 +22,8 @@ entity Risks : managed
     descr : String(100);
     impact : Integer;
     critically : Integer;
-    mitigations : Association to one Mitigations;
     Supplier : Association to one BusinessPartnerA2X.A_BusinessPartner;
+    mitigations : Association to one Mitigations;
 }
 
 entity Mitigations : managed

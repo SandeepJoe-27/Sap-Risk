@@ -1,0 +1,227 @@
+_schema-version: '3.1'
+ID: Firstproject
+version: 1.0.0
+description: A simple CAP project.
+parameters:
+  deploy_mode: html5-repo
+  enable-parallel-deployments: true
+build-parameters:
+  before-all:
+    - builder: custom
+      commands:
+        - rm -rf build/dist
+        - mkdir -p build/dist
+        - rm -rf build/ui-deployer
+        - mkdir -p build/ui-deployer
+    - builder: custom
+      commands:
+        - npm install --production
+        - >-
+          bash -c "cds -v | grep 'cds-dk' || npm i --production --no-save
+          @sap/cds-dk @sap/mdk-tools"
+        - bash -c "export PATH=$PATH:$(pwd)/node_modules/.bin"
+        - cds build --production
+  after-all:
+    - builder: custom
+      commands:
+        - npm install
+modules:
+  - name: Firstproject-firstproject.risks
+    type: html5
+    path: app/firstproject.risks
+    build-parameters:
+      builder: custom
+      commands:
+        - rm -rf dist-zip dist
+        - npm install
+        - >-
+          npx -p @ui5/cli@^3.0.0 ui5 build --dest dist
+          --include-task=generateCachebusterInfo
+        - mkdir dist-zip
+        - bash -c "cd dist && npx bestzip ../dist-zip/firstprojectrisks.zip *"
+      _artifactName: firstprojectrisks.zip
+      supported-platforms: []
+      build-result: dist-zip
+  - name: Firstproject-db-deployer
+    type: hdb
+    path: gen/db
+    parameters:
+      buildpack: nodejs_buildpack
+    build-parameters:
+      builder: npm
+      ignore:
+        - node_modules
+        - package-lock.json
+    requires:
+      - name: Firstproject-service-uaa
+      - name: Firstproject-service-db
+  - name: Firstproject-srv
+    type: nodejs
+    path: gen/srv
+    parameters:
+      memory: 256MB
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+    build-parameters:
+      builder: npm
+      ignore:
+        - node_modules
+        - package-lock.json
+    requires:
+      - name: Firstproject-service-uaa
+      - name: Firstproject-service-db
+      - name: Firstproject-service-destination
+      - name: Firstproject-service-metadata
+      - name: Firstproject-service-connectivity
+      - name: Firstproject-service-logs
+  - name: Firstproject-aux-destinations
+    type: com.sap.application.content
+    parameters:
+      content:
+        subaccount:
+          existing_destinations_policy: update
+          destinations:
+            - Authentication: OAuth2UserTokenExchange
+              Name: Firstproject-service-uaa
+              ServiceInstanceName: Firstproject-uaa
+              ServiceKeyName: Firstproject-uaa-key
+              sap.cloud.service: lcap.Firstproject
+            - Authentication: OAuth2UserTokenExchange
+              Name: Firstproject-app-srv
+              TokenServiceInstanceName: Firstproject-uaa
+              TokenServiceKeyName: Firstproject-uaa-key
+              URL: ~{srv-api/srv-url}
+              sap.cloud.service: lcap.Firstproject
+            - Name: Firstproject-service-html5-apps-repo-host
+              ServiceInstanceName: Firstproject-html5-apps-repo-host
+              ServiceKeyName: Firstproject-html5-apps-repo-host-key
+              sap.cloud.service: lcap.Firstproject
+            - Authentication: OAuth2UserTokenExchange
+              Name: Firstproject-RiskManagementService
+              TokenServiceInstanceName: Firstproject-uaa
+              TokenServiceKeyName: Firstproject-uaa-key
+              URL: ~{srv-api/srv-url}/service/FirstprojectSvcs
+              sap.cloud.service: lcap.Firstproject
+              sap.applicationdevelopment.actions.enabled: false
+              sap.build.usage: CAP
+              sap.processautomation.enabled: false
+              HTML5.DynamicDestination: false
+              WebIDEEnabled: false
+              MobileEnabled: false
+              AppgyverEnabled: false
+    build-parameters:
+      no-source: true
+    requires:
+      - name: Firstproject-service-uaa
+        parameters:
+          service-key:
+            name: Firstproject-uaa-key
+      - name: srv-api
+      - name: Firstproject-service-html5-apps-repo-host
+        parameters:
+          service-key:
+            name: Firstproject-html5-apps-repo-host-key
+      - name: Firstproject-service-destination
+        parameters:
+          content-target: true
+  - name: Firstproject-launchpad
+    type: html5
+    path: build/launchpad
+    build-parameters:
+      builder: custom
+      commands:
+        - npm install
+        - >-
+          npx -p @ui5/cli@^3.0.0 ui5 build --dest dist
+          --include-task=generateCachebusterInfo
+        - bash -c "cd dist && npx bestzip ../../../build/dist/launchpad.zip *"
+        - rm -rf dist
+      _artifactName: launchpad.zip
+      supported-platforms: []
+      build-result: ../../build/dist
+  - name: Firstproject-aux-ui-deployer
+    type: com.sap.application.content
+    path: build/ui-deployer
+    build-parameters:
+      build-result: resources
+      requires:
+        - name: Firstproject-firstproject.risks
+          artifacts:
+            - firstprojectrisks.zip
+          target-path: resources
+        - name: Firstproject-launchpad
+          artifacts:
+            - launchpad.zip
+          target-path: resources
+    requires:
+      - name: Firstproject-service-html5-apps-repo-host
+        parameters:
+          content-target: true
+resources:
+  - type: org.cloudfoundry.managed-service
+    name: Firstproject-service-uaa
+    parameters:
+      service: xsuaa
+      service-plan: application
+      service-name: Firstproject-uaa
+      path: xs-security.json
+      config:
+        oauth2-configuration:
+          redirect-uris:
+            - https://*.${default-domain}/login/*
+          credential-types:
+            - binding-secret
+            - x509
+        xsappname: Firstproject-${space}
+        role-collections:
+          - description: RiskViewer
+            name: Firstproject-RiskViewer-${space}
+            role-template-references:
+              - $XSAPPNAME.RiskViewer
+          - description: RiskManager
+            name: Firstproject-RiskManager-${space}
+            role-template-references:
+              - $XSAPPNAME.RiskManager
+  - type: org.cloudfoundry.managed-service
+    name: Firstproject-service-db
+    parameters:
+      service: hana
+      service-plan: hdi-shared
+      service-name: Firstproject-db
+  - type: org.cloudfoundry.managed-service
+    name: Firstproject-service-destination
+    parameters:
+      service: destination
+      service-plan: lite
+      service-name: Firstproject-destination
+      config:
+        HTML5Runtime_enabled: true
+        version: 1.0.0
+  - type: org.cloudfoundry.user-provided-service
+    name: Firstproject-service-metadata
+    parameters:
+      service: metadata
+      service-plan: standard
+      service-name: Firstproject-metadata
+      config:
+        default-domain: ${default-domain}
+  - type: org.cloudfoundry.managed-service
+    name: Firstproject-service-connectivity
+    parameters:
+      service: connectivity
+      service-plan: lite
+      service-name: Firstproject-connectivity
+  - type: org.cloudfoundry.managed-service
+    name: Firstproject-service-logs
+    parameters:
+      service: application-logs
+      service-plan: lite
+      service-name: Firstproject-logs
+  - type: org.cloudfoundry.managed-service
+    name: Firstproject-service-html5-apps-repo-host
+    parameters:
+      service: html5-apps-repo
+      service-plan: app-host
+      service-name: Firstproject-html5-apps-repo-host

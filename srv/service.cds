@@ -7,12 +7,12 @@ service RiskManagementService
 {
     annotate Mitigations with @restrict :
     [
-        { grant : [ '*' ], to : [ 'Risk Manager' ] }
+        { grant : [ '*' ], to : [ 'RiskManager' ] }
     ];
 
     annotate Risks with @restrict :
     [
-        { grant : [ '*' ], to : [ 'Risk Manager' ] }
+        { grant : [ '*' ], to : [ 'RiskViewer' ] }
     ];
 
     @odata.draft.enabled
